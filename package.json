@@ -1,6 +1,6 @@
 {
   "name": "opencode-quota",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Security-conscious OpenCode quota sidebar for OpenAI, GitHub Copilot, and Claude.",
   "private": true,
   "type": "module",
@@ -13,21 +13,46 @@
     "server",
     "tui"
   ],
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "opencode": ">=1.18.25 <2"
+  },
   "scripts": {
     "build": "esbuild src/index.ts src/tui.ts --bundle --format=esm --platform=node --packages=external --outdir=dist",
     "check": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
-    "test:ui": "bun test --conditions=browser tests/sidebar.test.mjs"
+    "test:ui": "bun test --conditions=browser tests/sidebar.test.mjs",
+    "package": "npm run build && node scripts/package.mjs"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.25",
+    "@opentui/core": ">=0.4.5",
+    "@opentui/solid": ">=0.4.5",
+    "solid-js": ">=1.9.12"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    },
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
     "@opencode-ai/plugin": "1.18.31",
     "@opentui/core": "0.4.5",
     "@opentui/solid": "0.4.5",
-    "solid-js": "1.9.12"
-  },
-  "devDependencies": {
     "@types/node": "22.13.10",
     "esbuild": "0.28.2",
+    "solid-js": "1.9.12",
     "tsx": "4.20.6",
     "typescript": "5.8.3"
   }

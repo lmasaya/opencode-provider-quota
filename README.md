@@ -52,6 +52,28 @@ mocked provider responses, verifies delayed cards and percentage bars, checks
 refreshes do not duplicate cards, and checks timer cleanup. Run `mise install`
 first to provision the test runtime.
 
+## Releasing
+
+```sh
+npm run package
+```
+
+This builds `dist/` and produces `opencode-quota-v<version>.tar.gz` plus a
+`.sha256` digest. Attach both to the GitHub release, then pin the version and
+digest in the chezmoi install script.
+
 ## Installation
 
-The chezmoi-managed OpenCode configuration installs a pinned GitHub release to `~/.local/share/opencode/plugins/opencode-quota`. It uses mise's managed Node runtime and `npm ci --omit=dev --ignore-scripts` to install only the lockfile-pinned runtime dependencies.
+The chezmoi-managed OpenCode configuration installs a pinned GitHub release to
+`~/.local/share/opencode/plugins/opencode-quota`.
+
+The deployed artifact is only `package.json` and `dist/` — roughly 8 KB with no
+`node_modules`. OpenCode embeds `@opentui/*` and `solid-js` in its own binary
+and provides them to plugins, so they are declared as optional peer
+dependencies rather than vendored. Nothing is compiled or installed on the
+target machine, and no package manager runs at deploy time.
+
+The install script verifies the release archive against a pinned SHA-256 digest
+before extracting, and swaps the directory atomically so a failed download
+cannot leave a partially written plugin in place.
+
