@@ -1,0 +1,28 @@
+{
+  "name": "opencode-quota",
+  "version": "0.1.0",
+  "description": "Security-conscious OpenCode quota sidebar for OpenAI, GitHub Copilot, and Claude.",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tui": "./src/tui.tsx"
+  },
+  "oc-plugin": ["server", "tui"],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.31",
+    "@opentui/core": "0.4.5",
+    "@opentui/solid": "0.4.5",
+    "solid-js": "1.9.12"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.10",
+    "tsx": "4.20.6",
+    "typescript": "5.8.3"
+  }
+}
