@@ -210,21 +210,25 @@ function card(api, snapshot) {
   }
   for (const fact of snapshot.facts ?? []) children.push(el("text", { fg: api.theme.current.textMuted }, [fact]));
   if (snapshot.status === "ok" && snapshot.note) children.push(el("text", { fg: api.theme.current.textMuted }, [snapshot.note]));
-  return el("box", { gap: 0, paddingBottom: 1 }, children);
+  return el("box", { flexDirection: "column", width: "100%", gap: 0, paddingBottom: 1 }, children);
 }
 var tui = async (api) => {
   api.slots.register({
     order: 100,
     slots: {
       sidebar_content() {
-        const cards = el("box", { gap: 0 });
-        const root = el("box", { gap: 0, paddingTop: 1, paddingRight: 1 }, [el("text", { fg: api.theme.current.textMuted }, [el("b", {}, ["QUOTA"])]), cards]);
+        const cards = el("box", { flexDirection: "column", width: "100%", gap: 0 }, [el("text", { fg: api.theme.current.textMuted }, ["Loading quota..."])]);
+        const root = el("box", { flexDirection: "column", width: "100%", gap: 0, paddingTop: 1, paddingRight: 1 }, [el("text", { fg: api.theme.current.textMuted }, [el("b", {}, ["QUOTA"])]), cards]);
         let disposed = false;
         const refresh = () => {
           void Promise.all(providers.map((provider) => quota(provider, anthropicEnabled))).then((snapshots) => {
             if (disposed) return;
             insert(cards, null);
             insert(cards, snapshots.map((snapshot) => card(api, snapshot)));
+          }).catch(() => {
+            if (disposed) return;
+            insert(cards, null);
+            insert(cards, el("text", { fg: api.theme.current.error }, ["Quota refresh failed"]));
           });
         };
         refresh();
