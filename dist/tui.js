@@ -1,5 +1,6 @@
-// src/tui.tsx
-import { createSignal, For, onCleanup, Show } from "solid-js";
+// src/tui.ts
+import { createElement, insert, setProp } from "@opentui/solid";
+import { onCleanup } from "solid-js";
 
 // src/quota.ts
 import { readFile } from "node:fs/promises";
@@ -123,9 +124,9 @@ function resetCreditFact(payload) {
   if (!isRecord(payload) || typeof payload.available_count !== "number" || !Number.isFinite(payload.available_count)) return void 0;
   return `Reset credits: ${Math.max(0, Math.floor(payload.available_count))} available`;
 }
-async function quota(provider, anthropicEnabled) {
+async function quota(provider, anthropicEnabled2) {
   const label = provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI";
-  if (provider === "anthropic" && !anthropicEnabled) return { provider, label, status: "unsupported", freshness: "live", checkedAt: Date.now(), windows: [], note: "disabled: unofficial endpoint" };
+  if (provider === "anthropic" && !anthropicEnabled2) return { provider, label, status: "unsupported", freshness: "live", checkedAt: Date.now(), windows: [], note: "disabled: unofficial endpoint" };
   const previous = cache.get(provider);
   if (previous && Date.now() - previous.snapshot.checkedAt < POLL_INTERVAL_MS) return previous.promise || { ...previous.snapshot, freshness: "cached" };
   if (previous?.promise) return previous.promise;
@@ -164,10 +165,15 @@ function formatReset(resetAt) {
   return `resets ${new Date(resetAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
 }
 
-// src/tui.tsx
-import { Fragment, jsx, jsxs } from "@opentui/solid/jsx-runtime";
-var PROVIDERS = ["openai", "github-copilot", "anthropic"];
-var ANTHROPIC_ENABLED = process.env.OPENCODE_QUOTA_ENABLE_ANTHROPIC === "1";
+// src/tui.ts
+var providers = ["openai", "github-copilot", "anthropic"];
+var anthropicEnabled = process.env.OPENCODE_QUOTA_ENABLE_ANTHROPIC === "1";
+function el(tag, props = {}, children = []) {
+  const node = createElement(tag);
+  for (const [key, value] of Object.entries(props)) setProp(node, key, value);
+  insert(node, children);
+  return node;
+}
 function tone(api, snapshot) {
   if (snapshot.status !== "ok") return api.theme.current.textMuted;
   const remaining = snapshot.windows[0]?.remaining ?? 0;
@@ -175,81 +181,59 @@ function tone(api, snapshot) {
   if (remaining <= 30) return api.theme.current.warning;
   return api.theme.current.success;
 }
-function bar(remaining, width = 16) {
-  const percent = `${Math.round(remaining)}%`;
-  const filled = Math.round(remaining / 100 * width);
-  const start = Math.max(0, Math.floor((width - percent.length) / 2));
-  return {
-    before: start,
-    percent,
-    after: width - start - percent.length,
-    filled
-  };
-}
 function providerColor(api, provider) {
   if (provider === "github-copilot") return api.theme.current.success;
   if (provider === "anthropic") return api.theme.current.warning;
   return api.theme.current.info;
 }
-function BarSegment(props) {
-  const colored = Math.max(0, Math.min(props.length, props.filled - props.start));
-  const empty = props.length - colored;
-  return /* @__PURE__ */ jsxs(Fragment, { children: [
-    /* @__PURE__ */ jsx(Show, { when: colored > 0, children: /* @__PURE__ */ jsx("span", { style: { bg: props.color }, children: " ".repeat(colored) }) }),
-    /* @__PURE__ */ jsx(Show, { when: empty > 0, children: /* @__PURE__ */ jsx("span", { children: " ".repeat(empty) }) })
-  ] });
-}
-function ProviderCard(props) {
-  const detail = () => props.snapshot.windows.slice(0, 2);
-  return /* @__PURE__ */ jsxs("box", { gap: 0, paddingBottom: 1, children: [
-    /* @__PURE__ */ jsxs("text", { fg: tone(props.api, props.snapshot), children: [
-      /* @__PURE__ */ jsx("b", { children: props.snapshot.label }),
-      /* @__PURE__ */ jsx(Show, { when: props.snapshot.status !== "ok", children: `  ${props.snapshot.note}` })
-    ] }),
-    /* @__PURE__ */ jsx(For, { each: detail(), children: (window) => {
-      const display = bar(window.remaining);
-      const color = providerColor(props.api, props.snapshot.provider);
-      return /* @__PURE__ */ jsxs("box", { gap: 0, children: [
-        /* @__PURE__ */ jsxs("text", { fg: tone(props.api, props.snapshot), children: [
-          window.label.padEnd(8),
-          " [",
-          /* @__PURE__ */ jsx(BarSegment, { start: 0, length: display.before, filled: display.filled, color }),
-          /* @__PURE__ */ jsx("span", { style: { fg: "#000000", bg: color }, children: /* @__PURE__ */ jsx("b", { children: display.percent }) }),
-          /* @__PURE__ */ jsx(BarSegment, { start: display.before + display.percent.length, length: display.after, filled: display.filled, color }),
-          "]"
-        ] }),
-        /* @__PURE__ */ jsx("text", { fg: props.api.theme.current.textMuted, children: formatReset(window.resetAt) })
-      ] });
-    } }),
-    /* @__PURE__ */ jsx(For, { each: props.snapshot.facts, children: (fact) => /* @__PURE__ */ jsx("text", { fg: props.api.theme.current.textMuted, children: fact }) }),
-    /* @__PURE__ */ jsx(Show, { when: props.snapshot.status === "ok" && props.snapshot.note, children: /* @__PURE__ */ jsx("text", { fg: props.api.theme.current.textMuted, children: props.snapshot.note }) })
-  ] });
-}
-function Sidebar(props) {
-  const [snapshots, setSnapshots] = createSignal([]);
-  let disposed = false;
-  const refresh = () => {
-    void Promise.all(PROVIDERS.map((provider) => quota(provider, ANTHROPIC_ENABLED))).then((next) => {
-      if (!disposed) setSnapshots(next);
-    });
+function bar(api, snapshot, remaining) {
+  const width = 16;
+  const percent = `${Math.round(remaining)}%`;
+  const filled = Math.round(remaining / 100 * width);
+  const before = Math.max(0, Math.floor((width - percent.length) / 2));
+  const after = width - before - percent.length;
+  const color = providerColor(api, snapshot.provider);
+  const segment = (start, length) => {
+    const colored = Math.max(0, Math.min(length, filled - start));
+    return [
+      colored > 0 ? el("span", { style: { bg: color } }, [" ".repeat(colored)]) : void 0,
+      length - colored > 0 ? el("span", {}, [" ".repeat(length - colored)]) : void 0
+    ].filter(Boolean);
   };
-  refresh();
-  const interval = setInterval(refresh, 6e4);
-  onCleanup(() => {
-    disposed = true;
-    clearInterval(interval);
-  });
-  return /* @__PURE__ */ jsxs("box", { gap: 0, paddingTop: 1, paddingRight: 1, children: [
-    /* @__PURE__ */ jsx("text", { fg: props.api.theme.current.textMuted, children: /* @__PURE__ */ jsx("b", { children: "QUOTA" }) }),
-    /* @__PURE__ */ jsx(For, { each: snapshots(), children: (snapshot) => /* @__PURE__ */ jsx(ProviderCard, { api: props.api, snapshot }) })
-  ] });
+  return ["[", ...segment(0, before), el("span", { style: { fg: "#000000", bg: color } }, [el("b", {}, [percent])]), ...segment(before + percent.length, after), "]"];
+}
+function card(api, snapshot) {
+  const children = [el("text", { fg: tone(api, snapshot) }, [el("b", {}, [snapshot.label]), snapshot.status === "ok" ? "" : `  ${snapshot.note ?? snapshot.status}`])];
+  for (const window of snapshot.windows.slice(0, 2)) {
+    children.push(el("text", { fg: tone(api, snapshot) }, [window.label.padEnd(8), " ", ...bar(api, snapshot, window.remaining)]));
+    children.push(el("text", { fg: api.theme.current.textMuted }, [formatReset(window.resetAt)]));
+  }
+  for (const fact of snapshot.facts ?? []) children.push(el("text", { fg: api.theme.current.textMuted }, [fact]));
+  if (snapshot.status === "ok" && snapshot.note) children.push(el("text", { fg: api.theme.current.textMuted }, [snapshot.note]));
+  return el("box", { gap: 0, paddingBottom: 1 }, children);
 }
 var tui = async (api) => {
   api.slots.register({
     order: 100,
     slots: {
       sidebar_content() {
-        return /* @__PURE__ */ jsx(Sidebar, { api });
+        const cards = el("box", { gap: 0 });
+        const root = el("box", { gap: 0, paddingTop: 1, paddingRight: 1 }, [el("text", { fg: api.theme.current.textMuted }, [el("b", {}, ["QUOTA"])]), cards]);
+        let disposed = false;
+        const refresh = () => {
+          void Promise.all(providers.map((provider) => quota(provider, anthropicEnabled))).then((snapshots) => {
+            if (disposed) return;
+            insert(cards, null);
+            insert(cards, snapshots.map((snapshot) => card(api, snapshot)));
+          });
+        };
+        refresh();
+        const interval = setInterval(refresh, 6e4);
+        onCleanup(() => {
+          disposed = true;
+          clearInterval(interval);
+        });
+        return root;
       }
     }
   });

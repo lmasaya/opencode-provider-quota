@@ -1,6 +1,6 @@
 {
   "name": "opencode-quota",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Security-conscious OpenCode quota sidebar for OpenAI, GitHub Copilot, and Claude.",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "tui"
   ],
   "scripts": {
-    "build": "esbuild src/index.ts src/tui.tsx --bundle --format=esm --platform=node --packages=external --jsx=automatic --jsx-import-source=@opentui/solid --outdir=dist",
+    "build": "esbuild src/index.ts src/tui.ts --bundle --format=esm --platform=node --packages=external --outdir=dist",
     "check": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },
