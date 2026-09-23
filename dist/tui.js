@@ -124,6 +124,10 @@ function resetCreditFact(payload) {
   if (!isRecord(payload) || typeof payload.available_count !== "number" || !Number.isFinite(payload.available_count)) return void 0;
   return `Reset credits: ${Math.max(0, Math.floor(payload.available_count))} available`;
 }
+function errorNote(error) {
+  if (error instanceof Error && (error.name === "AbortError" || /aborted|abort/i.test(error.message))) return "request interrupted; retrying";
+  return error instanceof Error ? error.message : "quota request failed";
+}
 async function quota(provider, anthropicEnabled2) {
   const label = provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI";
   if (provider === "anthropic" && !anthropicEnabled2) return { provider, label, status: "unsupported", freshness: "live", checkedAt: Date.now(), windows: [], note: "disabled: unofficial endpoint" };
@@ -148,12 +152,13 @@ async function quota(provider, anthropicEnabled2) {
         note: "no active metered quota reported"
       } : { provider, label, status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: "quota response changed" };
     } catch (error) {
-      return { provider, label, status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: error instanceof Error ? error.message : "quota request failed" };
+      return { provider, label, status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: errorNote(error) };
     }
   })();
   cache.set(provider, { snapshot: previous?.snapshot || { provider, label, status: "unavailable", freshness: "live", checkedAt: 0, windows: [] }, promise });
   const snapshot = await promise;
-  cache.set(provider, { snapshot });
+  if (snapshot.status === "ok" || snapshot.status === "unsupported") cache.set(provider, { snapshot });
+  else cache.delete(provider);
   return snapshot;
 }
 function formatReset(resetAt) {
@@ -175,16 +180,10 @@ function el(tag, props = {}, children = []) {
   return node;
 }
 function tone(api, snapshot) {
-  if (snapshot.status !== "ok") return api.theme.current.textMuted;
-  const remaining = snapshot.windows[0]?.remaining ?? 0;
-  if (remaining <= 5) return api.theme.current.error;
-  if (remaining <= 30) return api.theme.current.warning;
-  return api.theme.current.success;
+  return snapshot.status === "ok" ? api.theme.current.text : api.theme.current.textMuted;
 }
-function providerColor(api, provider) {
-  if (provider === "github-copilot") return api.theme.current.success;
-  if (provider === "anthropic") return api.theme.current.warning;
-  return api.theme.current.info;
+function providerColor() {
+  return "#ffffff";
 }
 function bar(api, snapshot, remaining) {
   const width = 16;
@@ -192,7 +191,7 @@ function bar(api, snapshot, remaining) {
   const filled = Math.round(remaining / 100 * width);
   const before = Math.max(0, Math.floor((width - percent.length) / 2));
   const after = width - before - percent.length;
-  const color = providerColor(api, snapshot.provider);
+  const color = providerColor();
   const segment = (start, length) => {
     const colored = Math.max(0, Math.min(length, filled - start));
     return [
@@ -203,8 +202,12 @@ function bar(api, snapshot, remaining) {
   return ["[", ...segment(0, before), el("span", { style: { fg: "#000000", bg: color } }, [el("b", {}, [percent])]), ...segment(before + percent.length, after), "]"];
 }
 function card(api, snapshot) {
-  const children = [el("text", { fg: tone(api, snapshot) }, [el("b", {}, [snapshot.label]), snapshot.status === "ok" ? "" : `  ${snapshot.note ?? snapshot.status}`])];
-  for (const window of snapshot.windows.slice(0, 2)) {
+  const windows = snapshot.windows.slice(0, 2);
+  const singleWindow = windows.length === 1;
+  const children = [el("text", { fg: tone(api, snapshot) }, [el("b", {}, [snapshot.label]), singleWindow ? [" ", ...bar(api, snapshot, windows[0].remaining)] : snapshot.status === "ok" ? "" : `  ${snapshot.note ?? snapshot.status}`])];
+  if (singleWindow) {
+    children.push(el("text", { fg: api.theme.current.textMuted }, [formatReset(windows[0].resetAt)]));
+  } else for (const window of windows) {
     children.push(el("text", { fg: tone(api, snapshot) }, [window.label.padEnd(8), " ", ...bar(api, snapshot, window.remaining)]));
     children.push(el("text", { fg: api.theme.current.textMuted }, [formatReset(window.resetAt)]));
   }
@@ -222,6 +225,7 @@ var tui = async (api) => {
         const root = el("box", { flexDirection: "column", width: "100%", gap: 0, paddingTop: 1, paddingRight: 1 }, [el("text", { fg: api.theme.current.textMuted }, [el("b", {}, ["QUOTA"])]), cards]);
         const snapshots = /* @__PURE__ */ new Map();
         let disposed = false;
+        let retryTimer;
         const render = () => {
           if (disposed) return;
           runWithOwner(owner, () => {
@@ -238,6 +242,12 @@ var tui = async (api) => {
             void quota(provider, anthropicEnabled).then((snapshot) => {
               snapshots.set(provider, snapshot);
               render();
+              if (snapshot.status === "error" && !retryTimer) {
+                retryTimer = setTimeout(() => {
+                  retryTimer = void 0;
+                  refresh();
+                }, 5e3);
+              }
             }).catch(() => {
               snapshots.set(provider, { provider, label: provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI", status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: "quota refresh failed" });
               render();
@@ -249,6 +259,7 @@ var tui = async (api) => {
         onCleanup(() => {
           disposed = true;
           clearInterval(interval);
+          if (retryTimer) clearTimeout(retryTimer);
         });
         return root;
       }

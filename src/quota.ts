@@ -159,6 +159,11 @@ export function resetCreditFact(payload: unknown): string | undefined {
   return `Reset credits: ${Math.max(0, Math.floor(payload.available_count))} available`
 }
 
+function errorNote(error: unknown): string {
+  if (error instanceof Error && (error.name === 'AbortError' || /aborted|abort/i.test(error.message))) return 'request interrupted; retrying'
+  return error instanceof Error ? error.message : 'quota request failed'
+}
+
 export async function quota(provider: Provider, anthropicEnabled: boolean): Promise<Snapshot> {
   const label = provider === 'github-copilot' ? 'Copilot' : provider === 'anthropic' ? 'Claude' : 'OpenAI'
   if (provider === 'anthropic' && !anthropicEnabled) return { provider, label, status: 'unsupported', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'disabled: unofficial endpoint' }
@@ -189,13 +194,14 @@ export async function quota(provider: Provider, anthropicEnabled: boolean): Prom
             }
         : { provider, label, status: 'error', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'quota response changed' }
     } catch (error) {
-      return { provider, label, status: 'error', freshness: 'live', checkedAt: Date.now(), windows: [], note: error instanceof Error ? error.message : 'quota request failed' }
+      return { provider, label, status: 'error', freshness: 'live', checkedAt: Date.now(), windows: [], note: errorNote(error) }
     }
   })()
 
   cache.set(provider, { snapshot: previous?.snapshot || { provider, label, status: 'unavailable', freshness: 'live', checkedAt: 0, windows: [] }, promise })
   const snapshot = await promise
-  cache.set(provider, { snapshot })
+  if (snapshot.status === 'ok' || snapshot.status === 'unsupported') cache.set(provider, { snapshot })
+  else cache.delete(provider)
   return snapshot
 }
 

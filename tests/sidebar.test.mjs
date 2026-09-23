@@ -52,6 +52,7 @@ test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', 
     let frame = screen.captureCharFrame()
     assert.match(frame, /Copilot/)
     assert.match(frame, /77%/)
+    assert.doesNotMatch(frame, /Premium/)
     assert.match(frame, /Claude/)
     assert.doesNotMatch(frame, /OpenAI/)
     completeOpenAI()

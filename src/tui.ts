@@ -14,17 +14,11 @@ function el(tag: string, props: Record<string, unknown> = {}, children: unknown[
 }
 
 function tone(api: Parameters<TuiPlugin>[0], snapshot: Snapshot) {
-  if (snapshot.status !== 'ok') return api.theme.current.textMuted
-  const remaining = snapshot.windows[0]?.remaining ?? 0
-  if (remaining <= 5) return api.theme.current.error
-  if (remaining <= 30) return api.theme.current.warning
-  return api.theme.current.success
+  return snapshot.status === 'ok' ? api.theme.current.text : api.theme.current.textMuted
 }
 
-function providerColor(api: Parameters<TuiPlugin>[0], provider: Snapshot['provider']) {
-  if (provider === 'github-copilot') return api.theme.current.success
-  if (provider === 'anthropic') return api.theme.current.warning
-  return api.theme.current.info
+function providerColor() {
+  return '#ffffff'
 }
 
 function bar(api: Parameters<TuiPlugin>[0], snapshot: Snapshot, remaining: number) {
@@ -33,7 +27,7 @@ function bar(api: Parameters<TuiPlugin>[0], snapshot: Snapshot, remaining: numbe
   const filled = Math.round((remaining / 100) * width)
   const before = Math.max(0, Math.floor((width - percent.length) / 2))
   const after = width - before - percent.length
-  const color = providerColor(api, snapshot.provider)
+  const color = providerColor()
   const segment = (start: number, length: number) => {
     const colored = Math.max(0, Math.min(length, filled - start))
     return [
@@ -45,8 +39,12 @@ function bar(api: Parameters<TuiPlugin>[0], snapshot: Snapshot, remaining: numbe
 }
 
 function card(api: Parameters<TuiPlugin>[0], snapshot: Snapshot) {
-  const children: unknown[] = [el('text', { fg: tone(api, snapshot) }, [el('b', {}, [snapshot.label]), snapshot.status === 'ok' ? '' : `  ${snapshot.note ?? snapshot.status}`])]
-  for (const window of snapshot.windows.slice(0, 2)) {
+  const windows = snapshot.windows.slice(0, 2)
+  const singleWindow = windows.length === 1
+  const children: unknown[] = [el('text', { fg: tone(api, snapshot) }, [el('b', {}, [snapshot.label]), singleWindow ? [' ', ...bar(api, snapshot, windows[0].remaining)] : snapshot.status === 'ok' ? '' : `  ${snapshot.note ?? snapshot.status}`])]
+  if (singleWindow) {
+    children.push(el('text', { fg: api.theme.current.textMuted }, [formatReset(windows[0].resetAt)]))
+  } else for (const window of windows) {
     children.push(el('text', { fg: tone(api, snapshot) }, [window.label.padEnd(8), ' ', ...bar(api, snapshot, window.remaining)]))
     children.push(el('text', { fg: api.theme.current.textMuted }, [formatReset(window.resetAt)]))
   }
@@ -65,6 +63,7 @@ const tui: TuiPlugin = async (api) => {
         const root = el('box', { flexDirection: 'column', width: '100%', gap: 0, paddingTop: 1, paddingRight: 1 }, [el('text', { fg: api.theme.current.textMuted }, [el('b', {}, ['QUOTA'])]), cards])
         const snapshots = new Map<Snapshot['provider'], Snapshot>()
         let disposed = false
+        let retryTimer: ReturnType<typeof setTimeout> | undefined
         const render = () => {
           if (disposed) return
           // Promise callbacks have no Solid owner. Restore the slot's renderer
@@ -83,6 +82,12 @@ const tui: TuiPlugin = async (api) => {
             void quota(provider, anthropicEnabled).then((snapshot) => {
               snapshots.set(provider, snapshot)
               render()
+              if (snapshot.status === 'error' && !retryTimer) {
+                retryTimer = setTimeout(() => {
+                  retryTimer = undefined
+                  refresh()
+                }, 5000)
+              }
             }).catch(() => {
               snapshots.set(provider, { provider, label: provider === 'github-copilot' ? 'Copilot' : provider === 'anthropic' ? 'Claude' : 'OpenAI', status: 'error', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'quota refresh failed' })
               render()
@@ -94,6 +99,7 @@ const tui: TuiPlugin = async (api) => {
         onCleanup(() => {
           disposed = true
           clearInterval(interval)
+          if (retryTimer) clearTimeout(retryTimer)
         })
         return root as unknown as Element
       },

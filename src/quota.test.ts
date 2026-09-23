@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatReset, parseQuota, resetCreditFact } from './quota.js'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { formatReset, parseQuota, quota, resetCreditFact } from './quota.js'
 
 test('formats a future reset without exposing an absolute timestamp for nearby resets', () => {
   const reset = new Date(Date.now() + 30 * 60_000).toISOString()
@@ -44,4 +47,23 @@ test('does not invent an OpenAI quota when the provider reports no rate-limit wi
 test('renders an actionable OpenAI reset-credit count without treating it as a percentage', () => {
   assert.equal(resetCreditFact({ available_count: 3 }), 'Reset credits: 3 available')
   assert.equal(resetCreditFact({ available_count: '3' }), undefined)
+})
+
+test('labels an interrupted request as retryable', async () => {
+  const originalFetch = globalThis.fetch
+  const originalDataHome = process.env.XDG_DATA_HOME
+  const directory = await mkdtemp(join(tmpdir(), 'opencode-quota-test-'))
+  process.env.XDG_DATA_HOME = directory
+  await mkdir(join(directory, 'opencode'))
+  await writeFile(join(directory, 'opencode', 'auth.json'), JSON.stringify({ openai: { type: 'oauth', access: 'test-only', expires: Date.now() + 3600000 } }), { mode: 0o600 })
+  globalThis.fetch = async () => { throw new DOMException('The operation was aborted.', 'AbortError') }
+  try {
+    const snapshot = await quota('openai', false)
+    assert.equal(snapshot.note, 'request interrupted; retrying')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalDataHome === undefined) delete process.env.XDG_DATA_HOME
+    else process.env.XDG_DATA_HOME = originalDataHome
+    await rm(directory, { recursive: true, force: true })
+  }
 })
