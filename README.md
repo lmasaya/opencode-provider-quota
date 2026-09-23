@@ -25,9 +25,12 @@ OpenAI and Copilot use unofficial subscription endpoints that can change without
 ## Development
 
 ```sh
-npm install
+npm ci --ignore-scripts
+npm run build
 npm run check
 npm test
 ```
 
-This repository intentionally stays private until the implementation and provider contracts receive another review.
+## Installation
+
+The chezmoi-managed OpenCode configuration installs a pinned GitHub release to `~/.local/share/opencode/plugins/opencode-quota`. It uses mise's managed Node runtime and `npm ci --omit=dev --ignore-scripts` to install only the lockfile-pinned runtime dependencies.
