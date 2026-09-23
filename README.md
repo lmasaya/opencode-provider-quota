@@ -11,8 +11,6 @@ Each provider card shows:
 - A safe unavailable/error state when quota data is not supplied.
 - A clear source label: these are unofficial subscription endpoints, not API billing or API rate-limit data.
 
-`opencode-token-usage` remains responsible for local session token and cost totals, avoiding duplicate state and storage.
-
 ## Security Model
 
 - Reads only the matching OAuth entry from OpenCode's global `auth.json`.
