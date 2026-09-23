@@ -21,13 +21,28 @@ function isRecord(value) {
 }
 function percentage(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return void 0;
-  const normalized = value > 0 && value <= 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, normalized));
+  return Math.max(0, Math.min(100, value));
+}
+function ratioPercentage(value) {
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value * 100)) : void 0;
+}
+function numeric(value) {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : void 0;
 }
 function date(value) {
-  if (typeof value !== "string" && typeof value !== "number") return void 0;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return void 0;
+    const parsed2 = new Date(value < 1e11 ? value * 1e3 : value);
+    return Number.isNaN(parsed2.getTime()) ? void 0 : parsed2.toISOString();
+  }
+  if (typeof value !== "string") return void 0;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? void 0 : parsed.toISOString();
+}
+function relativeReset(seconds) {
+  const value = numeric(seconds);
+  return value === void 0 || value < 0 ? void 0 : new Date(Date.now() + value * 1e3).toISOString();
 }
 function authPath() {
   return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "opencode", "auth.json");
@@ -72,10 +87,15 @@ async function request(provider, auth, endpoint = ENDPOINTS[provider]) {
     clearTimeout(timer);
   }
 }
+function openaiSpendControl(payload) {
+  const control = payload.spend_control;
+  if (!isRecord(control) || !isRecord(control.individual_limit)) return void 0;
+  return control.individual_limit;
+}
 function openai(payload) {
-  if (!isRecord(payload) || !isRecord(payload.rate_limit)) return [];
-  const limits = payload.rate_limit;
-  return [
+  if (!isRecord(payload)) return [];
+  const limits = isRecord(payload.rate_limit) ? payload.rate_limit : {};
+  const windows = [
     ["primary_window", "5h"],
     ["secondary_window", "Weekly"]
   ].flatMap(([key, label]) => {
@@ -84,17 +104,34 @@ function openai(payload) {
     const used = percentage(window.used_percent);
     const remaining = percentage(window.remaining_percent) ?? (used === void 0 ? void 0 : 100 - used);
     if (remaining === void 0) return [];
-    const resetAt = date(window.reset_at) || (typeof window.reset_after_seconds === "number" ? new Date(Date.now() + window.reset_after_seconds * 1e3).toISOString() : void 0);
-    return [{ label, remaining, resetAt }];
+    return [{ label, remaining, resetAt: date(window.reset_at) ?? relativeReset(window.reset_after_seconds) }];
   });
+  const limit = openaiSpendControl(payload);
+  if (limit) {
+    const used = percentage(limit.used_percent);
+    const remaining = percentage(limit.remaining_percent) ?? (used === void 0 ? void 0 : 100 - used);
+    if (remaining !== void 0) {
+      windows.push({ label: "Credits", remaining, resetAt: date(limit.reset_at) ?? relativeReset(limit.reset_after_seconds) });
+    }
+  }
+  return windows;
+}
+function openaiFacts(payload) {
+  if (!isRecord(payload)) return [];
+  const limit = openaiSpendControl(payload);
+  const remaining = numeric(limit?.remaining);
+  const total = numeric(limit?.limit);
+  if (remaining === void 0 || total === void 0) return [];
+  const unit = typeof limit?.unit === "string" && limit.unit ? `${limit.unit}s` : "credits";
+  return [`${Math.round(remaining).toLocaleString("en-US")} of ${Math.round(total).toLocaleString("en-US")} ${unit} left`];
 }
 function copilot(payload) {
   if (!isRecord(payload) || !isRecord(payload.quota_snapshots) || !isRecord(payload.quota_snapshots.premium_interactions)) return [];
   const premium = payload.quota_snapshots.premium_interactions;
   const byPercent = percentage(premium.percent_remaining);
-  const entitlement = typeof premium.entitlement === "number" ? premium.entitlement : void 0;
-  const rawRemaining = typeof premium.remaining === "number" ? premium.remaining : void 0;
-  const remaining = byPercent ?? (entitlement && rawRemaining !== void 0 ? percentage(rawRemaining / entitlement) : void 0);
+  const entitlement = numeric(premium.entitlement);
+  const rawRemaining = numeric(premium.remaining);
+  const remaining = byPercent ?? (entitlement && rawRemaining !== void 0 ? ratioPercentage(rawRemaining / entitlement) : void 0);
   if (remaining === void 0) return [];
   return [{ label: "Premium", remaining, resetAt: date(payload.quota_reset_date) || date(premium.quota_reset_date_utc) }];
 }
@@ -128,6 +165,9 @@ function errorNote(error) {
   if (error instanceof Error && (error.name === "AbortError" || /aborted|abort/i.test(error.message))) return "request interrupted; retrying";
   return error instanceof Error ? error.message : "quota request failed";
 }
+function invalidateQuotaCache() {
+  cache.clear();
+}
 async function quota(provider, anthropicEnabled2) {
   const label = provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI";
   if (provider === "anthropic" && !anthropicEnabled2) return { provider, label, status: "unsupported", freshness: "live", checkedAt: Date.now(), windows: [], note: "disabled: unofficial endpoint" };
@@ -141,7 +181,8 @@ async function quota(provider, anthropicEnabled2) {
     try {
       const payload = await request(provider, auth);
       const windows = parseQuota(provider, payload);
-      return windows.length > 0 ? { provider, label, status: "ok", freshness: "live", checkedAt: Date.now(), windows } : provider === "openai" && noOpenAIQuota(payload) ? {
+      const facts = provider === "openai" ? openaiFacts(payload) : [];
+      return windows.length > 0 ? { provider, label, status: "ok", freshness: "live", checkedAt: Date.now(), windows, facts: facts.length > 0 ? facts : void 0 } : provider === "openai" && noOpenAIQuota(payload) ? {
         provider,
         label,
         status: "ok",
@@ -268,5 +309,6 @@ var tui = async (api) => {
 };
 var tui_default = { id: "lmasaya.opencode-quota", tui };
 export {
-  tui_default as default
+  tui_default as default,
+  invalidateQuotaCache
 };

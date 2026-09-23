@@ -41,16 +41,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// Providers report these fields on a 0-100 scale. Never rescale: a value of 1
+// means one percent remaining, and guessing it was a fraction would render a
+// nearly exhausted quota as full.
 function percentage(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
-  const normalized = value > 0 && value <= 1 ? value * 100 : value
-  return Math.max(0, Math.min(100, normalized))
+  return Math.max(0, Math.min(100, value))
+}
+
+function ratioPercentage(value: number): number | undefined {
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value * 100)) : undefined
+}
+
+function numeric(value: unknown): number | undefined {
+  const parsed = typeof value === 'string' ? Number(value) : value
+  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : undefined
 }
 
 function date(value: unknown): string | undefined {
-  if (typeof value !== 'string' && typeof value !== 'number') return undefined
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return undefined
+    // OpenAI reports epoch seconds; Date expects milliseconds.
+    const parsed = new Date(value < 1e11 ? value * 1000 : value)
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString()
+  }
+  if (typeof value !== 'string') return undefined
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString()
+}
+
+function relativeReset(seconds: unknown): string | undefined {
+  const value = numeric(seconds)
+  return value === undefined || value < 0 ? undefined : new Date(Date.now() + value * 1000).toISOString()
 }
 
 function authPath() {
@@ -101,10 +123,18 @@ async function request(provider: Provider, auth: OAuth, endpoint = ENDPOINTS[pro
   }
 }
 
+// Business/enterprise plans report a credit budget under spend_control instead
+// of the consumer 5h/weekly rate-limit windows.
+function openaiSpendControl(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  const control = payload.spend_control
+  if (!isRecord(control) || !isRecord(control.individual_limit)) return undefined
+  return control.individual_limit
+}
+
 function openai(payload: unknown): QuotaWindow[] {
-  if (!isRecord(payload) || !isRecord(payload.rate_limit)) return []
-  const limits = payload.rate_limit
-  return [
+  if (!isRecord(payload)) return []
+  const limits = isRecord(payload.rate_limit) ? payload.rate_limit : {}
+  const windows = [
     ['primary_window', '5h'],
     ['secondary_window', 'Weekly'],
   ].flatMap(([key, label]) => {
@@ -113,18 +143,37 @@ function openai(payload: unknown): QuotaWindow[] {
     const used = percentage(window.used_percent)
     const remaining = percentage(window.remaining_percent) ?? (used === undefined ? undefined : 100 - used)
     if (remaining === undefined) return []
-    const resetAt = date(window.reset_at) || (typeof window.reset_after_seconds === 'number' ? new Date(Date.now() + window.reset_after_seconds * 1000).toISOString() : undefined)
-    return [{ label, remaining, resetAt }]
+    return [{ label, remaining, resetAt: date(window.reset_at) ?? relativeReset(window.reset_after_seconds) }]
   })
+
+  const limit = openaiSpendControl(payload)
+  if (limit) {
+    const used = percentage(limit.used_percent)
+    const remaining = percentage(limit.remaining_percent) ?? (used === undefined ? undefined : 100 - used)
+    if (remaining !== undefined) {
+      windows.push({ label: 'Credits', remaining, resetAt: date(limit.reset_at) ?? relativeReset(limit.reset_after_seconds) })
+    }
+  }
+  return windows
+}
+
+export function openaiFacts(payload: unknown): string[] {
+  if (!isRecord(payload)) return []
+  const limit = openaiSpendControl(payload)
+  const remaining = numeric(limit?.remaining)
+  const total = numeric(limit?.limit)
+  if (remaining === undefined || total === undefined) return []
+  const unit = typeof limit?.unit === 'string' && limit.unit ? `${limit.unit}s` : 'credits'
+  return [`${Math.round(remaining).toLocaleString('en-US')} of ${Math.round(total).toLocaleString('en-US')} ${unit} left`]
 }
 
 function copilot(payload: unknown): QuotaWindow[] {
   if (!isRecord(payload) || !isRecord(payload.quota_snapshots) || !isRecord(payload.quota_snapshots.premium_interactions)) return []
   const premium = payload.quota_snapshots.premium_interactions
   const byPercent = percentage(premium.percent_remaining)
-  const entitlement = typeof premium.entitlement === 'number' ? premium.entitlement : undefined
-  const rawRemaining = typeof premium.remaining === 'number' ? premium.remaining : undefined
-  const remaining = byPercent ?? (entitlement && rawRemaining !== undefined ? percentage(rawRemaining / entitlement) : undefined)
+  const entitlement = numeric(premium.entitlement)
+  const rawRemaining = numeric(premium.remaining)
+  const remaining = byPercent ?? (entitlement && rawRemaining !== undefined ? ratioPercentage(rawRemaining / entitlement) : undefined)
   if (remaining === undefined) return []
   return [{ label: 'Premium', remaining, resetAt: date(payload.quota_reset_date) || date(premium.quota_reset_date_utc) }]
 }
@@ -164,6 +213,11 @@ function errorNote(error: unknown): string {
   return error instanceof Error ? error.message : 'quota request failed'
 }
 
+// Drops cached snapshots so the next call re-queries every provider.
+export function invalidateQuotaCache(): void {
+  cache.clear()
+}
+
 export async function quota(provider: Provider, anthropicEnabled: boolean): Promise<Snapshot> {
   const label = provider === 'github-copilot' ? 'Copilot' : provider === 'anthropic' ? 'Claude' : 'OpenAI'
   if (provider === 'anthropic' && !anthropicEnabled) return { provider, label, status: 'unsupported', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'disabled: unofficial endpoint' }
@@ -179,8 +233,9 @@ export async function quota(provider: Provider, anthropicEnabled: boolean): Prom
     try {
       const payload = await request(provider, auth)
       const windows = parseQuota(provider, payload)
+      const facts = provider === 'openai' ? openaiFacts(payload) : []
       return windows.length > 0
-        ? { provider, label, status: 'ok', freshness: 'live', checkedAt: Date.now(), windows }
+        ? { provider, label, status: 'ok', freshness: 'live', checkedAt: Date.now(), windows, facts: facts.length > 0 ? facts : undefined }
         : provider === 'openai' && noOpenAIQuota(payload)
           ? {
               provider,

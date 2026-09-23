@@ -4,9 +4,56 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { testRender } from '@opentui/solid'
-import plugin from '../dist/tui.js'
+import plugin, { invalidateQuotaCache } from '../dist/tui.js'
+
+test('built sidebar renders a business-plan credit budget for OpenAI', async () => {
+  invalidateQuotaCache()
+  const directory = await mkdtemp(join(tmpdir(), 'quota-ui-business-'))
+  const originalDataHome = process.env.XDG_DATA_HOME
+  const originalFetch = globalThis.fetch
+  process.env.XDG_DATA_HOME = directory
+  await mkdir(join(directory, 'opencode'))
+  await writeFile(join(directory, 'opencode', 'auth.json'), JSON.stringify({
+    openai: { type: 'oauth', access: 'test-only', expires: Date.now() + 3600000 },
+  }), { mode: 0o600 })
+  globalThis.fetch = async url => {
+    assert.equal(String(url), 'https://chatgpt.com/backend-api/wham/usage')
+    return Response.json({
+      plan_type: 'business',
+      rate_limit: null,
+      additional_rate_limits: null,
+      spend_control: {
+        individual_limit: { unit: 'credit', limit: '7500', remaining: '5390.29', used_percent: 28, remaining_percent: 72, reset_at: 1790812800 },
+      },
+    })
+  }
+  let slot
+  let screen
+  try {
+    await plugin.tui({
+      theme: { current: { text: '#ffffff', textMuted: '#888888', success: '#00ff00', warning: '#ffaa00', error: '#ff0000', info: '#0088ff' } },
+      slots: { register(value) { slot = value.slots.sidebar_content } },
+    })
+    screen = await testRender(() => slot(), { width: 60, height: 30 })
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await screen.renderOnce()
+    const frame = screen.captureCharFrame()
+    assert.match(frame, /OpenAI/)
+    assert.match(frame, /72%/)
+    assert.match(frame, /5,390 of 7,500 credits left/)
+    assert.doesNotMatch(frame, /no active metered quota/)
+    assert.doesNotMatch(frame, /quota response changed/)
+  } finally {
+    screen?.renderer.destroy()
+    globalThis.fetch = originalFetch
+    if (originalDataHome === undefined) delete process.env.XDG_DATA_HOME
+    else process.env.XDG_DATA_HOME = originalDataHome
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', async () => {
+  invalidateQuotaCache()
   const directory = await mkdtemp(join(tmpdir(), 'quota-ui-test-'))
   const originalDataHome = process.env.XDG_DATA_HOME
   const originalFetch = globalThis.fetch

@@ -11,6 +11,20 @@ Each provider card shows:
 - A safe unavailable/error state when quota data is not supplied.
 - A clear source label: these are unofficial subscription endpoints, not API billing or API rate-limit data.
 
+### OpenAI quota sources
+
+OpenAI reports quota differently per plan, so both shapes are read:
+
+- Consumer/Codex plans expose `rate_limit.primary_window` and `secondary_window`
+  as 5h and weekly windows.
+- Business/enterprise plans leave those null and instead expose a credit budget
+  under `spend_control.individual_limit`. That budget renders as the bar, with
+  the absolute balance shown beneath it.
+
+Timestamps from OpenAI are epoch seconds. Percentages from all providers are
+read on a 0-100 scale and never rescaled, so a 1% remainder is never mistaken
+for a full quota.
+
 ## Security Model
 
 - Reads only the matching OAuth entry from OpenCode's global `auth.json`.
