@@ -1,6 +1,6 @@
 import { createElement, insert, setProp } from '@opentui/solid'
 import type { TuiPlugin, TuiPluginModule } from '@opencode-ai/plugin/tui'
-import { onCleanup } from 'solid-js'
+import { getOwner, onCleanup, runWithOwner } from 'solid-js'
 import { formatReset, quota, type Snapshot } from './quota.js'
 
 const providers = ['openai', 'github-copilot', 'anthropic'] as const
@@ -60,18 +60,23 @@ const tui: TuiPlugin = async (api) => {
     order: 100,
     slots: {
       sidebar_content() {
+        const owner = getOwner()
         const cards = el('box', { flexDirection: 'column', width: '100%', gap: 0 }, [el('text', { fg: api.theme.current.textMuted }, ['Loading quota...'])])
         const root = el('box', { flexDirection: 'column', width: '100%', gap: 0, paddingTop: 1, paddingRight: 1 }, [el('text', { fg: api.theme.current.textMuted }, [el('b', {}, ['QUOTA'])]), cards])
         const snapshots = new Map<Snapshot['provider'], Snapshot>()
         let disposed = false
         const render = () => {
           if (disposed) return
-          insert(cards, null)
-          const rendered = providers.flatMap((provider) => {
-            const snapshot = snapshots.get(provider)
-            return snapshot ? [card(api, snapshot)] : []
+          // Promise callbacks have no Solid owner. Restore the slot's renderer
+          // context before creating nodes, including error-state nodes.
+          runWithOwner(owner, () => {
+            const rendered = providers.flatMap((provider) => {
+              const snapshot = snapshots.get(provider)
+              return snapshot ? [card(api, snapshot)] : []
+            })
+            insert(cards, null)
+            insert(cards, rendered.length > 0 ? rendered : el('text', { fg: api.theme.current.textMuted }, ['Loading quota...']))
           })
-          insert(cards, rendered.length > 0 ? rendered : el('text', { fg: api.theme.current.textMuted }, ['Loading quota...']))
         }
         const refresh = () => {
           for (const provider of providers) {

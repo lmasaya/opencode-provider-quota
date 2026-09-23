@@ -1,6 +1,6 @@
 // src/tui.ts
 import { createElement, insert, setProp } from "@opentui/solid";
-import { onCleanup } from "solid-js";
+import { getOwner, onCleanup, runWithOwner } from "solid-js";
 
 // src/quota.ts
 import { readFile } from "node:fs/promises";
@@ -217,18 +217,21 @@ var tui = async (api) => {
     order: 100,
     slots: {
       sidebar_content() {
+        const owner = getOwner();
         const cards = el("box", { flexDirection: "column", width: "100%", gap: 0 }, [el("text", { fg: api.theme.current.textMuted }, ["Loading quota..."])]);
         const root = el("box", { flexDirection: "column", width: "100%", gap: 0, paddingTop: 1, paddingRight: 1 }, [el("text", { fg: api.theme.current.textMuted }, [el("b", {}, ["QUOTA"])]), cards]);
         const snapshots = /* @__PURE__ */ new Map();
         let disposed = false;
         const render = () => {
           if (disposed) return;
-          insert(cards, null);
-          const rendered = providers.flatMap((provider) => {
-            const snapshot = snapshots.get(provider);
-            return snapshot ? [card(api, snapshot)] : [];
+          runWithOwner(owner, () => {
+            const rendered = providers.flatMap((provider) => {
+              const snapshot = snapshots.get(provider);
+              return snapshot ? [card(api, snapshot)] : [];
+            });
+            insert(cards, null);
+            insert(cards, rendered.length > 0 ? rendered : el("text", { fg: api.theme.current.textMuted }, ["Loading quota..."]));
           });
-          insert(cards, rendered.length > 0 ? rendered : el("text", { fg: api.theme.current.textMuted }, ["Loading quota..."]));
         };
         const refresh = () => {
           for (const provider of providers) {

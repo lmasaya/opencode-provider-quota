@@ -29,7 +29,14 @@ npm ci --ignore-scripts
 npm run build
 npm run check
 npm test
+mise exec -- npm run test:ui
 ```
+
+The UI regression test uses Bun (pinned in `mise.toml`) and OpenTUI's real
+test renderer against `dist/tui.js`. It supplies synthetic credentials and
+mocked provider responses, verifies delayed cards and percentage bars, checks
+refreshes do not duplicate cards, and checks timer cleanup. Run `mise install`
+first to provision the test runtime.
 
 ## Installation
 
