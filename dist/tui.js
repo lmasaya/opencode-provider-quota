@@ -212,8 +212,9 @@ function formatReset(resetAt) {
 }
 
 // src/tui.ts
-var providers = ["openai", "github-copilot", "anthropic"];
+var allProviders = ["openai", "github-copilot", "anthropic"];
 var anthropicEnabled = process.env.OPENCODE_QUOTA_ENABLE_ANTHROPIC === "1";
+var providers = anthropicEnabled ? allProviders : allProviders.filter((provider) => provider !== "anthropic");
 function el(tag, props = {}, children = []) {
   const node = createElement(tag);
   for (const [key, value] of Object.entries(props)) setProp(node, key, value);
@@ -252,7 +253,6 @@ function card(api, snapshot) {
     children.push(el("text", { fg: tone(api, snapshot) }, [window.label.padEnd(8), " ", ...bar(api, snapshot, window.remaining)]));
     children.push(el("text", { fg: api.theme.current.textMuted }, [formatReset(window.resetAt)]));
   }
-  for (const fact of snapshot.facts ?? []) children.push(el("text", { fg: api.theme.current.textMuted }, [fact]));
   if (snapshot.status === "ok" && snapshot.note) children.push(el("text", { fg: api.theme.current.textMuted }, [snapshot.note]));
   return el("box", { flexDirection: "column", width: "100%", gap: 0, paddingBottom: 1 }, children);
 }

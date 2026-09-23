@@ -1,6 +1,6 @@
 {
   "name": "opencode-quota",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Security-conscious OpenCode quota sidebar for OpenAI, GitHub Copilot, and Claude.",
   "private": true,
   "type": "module",

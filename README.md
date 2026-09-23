@@ -23,7 +23,8 @@ OpenAI reports quota differently per plan, so both shapes are read:
 
 Timestamps from OpenAI are epoch seconds. Percentages from all providers are
 read on a 0-100 scale and never rescaled, so a 1% remainder is never mistaken
-for a full quota.
+for a full quota. The absolute credit balance is computed but not rendered in
+the sidebar; the bar and reset time are the only quota UI.
 
 ## Security Model
 
@@ -34,7 +35,7 @@ for a full quota.
 - Polls each provider at most once per minute and coalesces concurrent requests.
 - Does not refresh or write OAuth credentials. Reauthenticate with OpenCode when a token expires.
 
-OpenAI and Copilot use unofficial subscription endpoints that can change without notice. Claude's subscription endpoint is disabled by default because OpenCode documents policy concerns around Claude Pro/Max integrations. Set `OPENCODE_QUOTA_ENABLE_ANTHROPIC=1` only if you accept that risk.
+OpenAI and Copilot use unofficial subscription endpoints that can change without notice. Claude's subscription endpoint is disabled by default because OpenCode documents policy concerns around Claude Pro/Max integrations, and its card is omitted from the sidebar entirely while disabled. Set `OPENCODE_QUOTA_ENABLE_ANTHROPIC=1` only if you accept that risk.
 
 ## Development
 
