@@ -219,17 +219,27 @@ var tui = async (api) => {
       sidebar_content() {
         const cards = el("box", { flexDirection: "column", width: "100%", gap: 0 }, [el("text", { fg: api.theme.current.textMuted }, ["Loading quota..."])]);
         const root = el("box", { flexDirection: "column", width: "100%", gap: 0, paddingTop: 1, paddingRight: 1 }, [el("text", { fg: api.theme.current.textMuted }, [el("b", {}, ["QUOTA"])]), cards]);
+        const snapshots = /* @__PURE__ */ new Map();
         let disposed = false;
-        const refresh = () => {
-          void Promise.all(providers.map((provider) => quota(provider, anthropicEnabled))).then((snapshots) => {
-            if (disposed) return;
-            insert(cards, null);
-            insert(cards, snapshots.map((snapshot) => card(api, snapshot)));
-          }).catch(() => {
-            if (disposed) return;
-            insert(cards, null);
-            insert(cards, el("text", { fg: api.theme.current.error }, ["Quota refresh failed"]));
+        const render = () => {
+          if (disposed) return;
+          insert(cards, null);
+          const rendered = providers.flatMap((provider) => {
+            const snapshot = snapshots.get(provider);
+            return snapshot ? [card(api, snapshot)] : [];
           });
+          insert(cards, rendered.length > 0 ? rendered : el("text", { fg: api.theme.current.textMuted }, ["Loading quota..."]));
+        };
+        const refresh = () => {
+          for (const provider of providers) {
+            void quota(provider, anthropicEnabled).then((snapshot) => {
+              snapshots.set(provider, snapshot);
+              render();
+            }).catch(() => {
+              snapshots.set(provider, { provider, label: provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI", status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: "quota refresh failed" });
+              render();
+            });
+          }
         };
         refresh();
         const interval = setInterval(refresh, 6e4);
