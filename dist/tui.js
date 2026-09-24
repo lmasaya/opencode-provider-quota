@@ -287,7 +287,7 @@ var tui = async (api) => {
     }
   });
 };
-var tui_default = { id: "lmasaya.opencode-quota", tui };
+var tui_default = { id: "lmasaya.opencode-provider-quota", tui };
 export {
   tui_default as default,
   invalidateQuotaCache

@@ -109,4 +109,4 @@ const tui: TuiPlugin = async (api) => {
 
 export { invalidateQuotaCache } from './quota.js'
 
-export default { id: 'lmasaya.opencode-quota', tui } satisfies TuiPluginModule & { id: string }
+export default { id: 'lmasaya.opencode-provider-quota', tui } satisfies TuiPluginModule & { id: string }

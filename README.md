@@ -1,4 +1,4 @@
-# OpenCode Quota
+# OpenCode Provider Quota
 
 A local-first OpenCode quota sidebar for OpenAI and GitHub Copilot.
 
@@ -42,7 +42,7 @@ OpenAI and Copilot use unofficial subscription endpoints that can change without
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["opencode-quota@x.y.z"]
+  "plugin": ["opencode-provider-quota@x.y.z"]
 }
 ```
 
