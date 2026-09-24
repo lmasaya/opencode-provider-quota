@@ -1,7 +1,7 @@
 {
   "name": "opencode-quota",
   "version": "0.2.2",
-  "description": "Security-conscious OpenCode quota sidebar for OpenAI, GitHub Copilot, and Claude.",
+  "description": "Security-conscious OpenCode quota sidebar for OpenAI and GitHub Copilot.",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -23,8 +23,7 @@
     "build": "esbuild src/index.ts src/tui.ts --bundle --format=esm --platform=node --packages=external --outdir=dist",
     "check": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
-    "test:ui": "bun test --conditions=browser tests/sidebar.test.mjs",
-    "package": "npm run build && node scripts/package.mjs"
+    "test:ui": "bun test --conditions=browser tests/sidebar.test.mjs"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.18.25",

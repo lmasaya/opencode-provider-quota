@@ -3,11 +3,7 @@ import type { TuiPlugin, TuiPluginModule } from '@opencode-ai/plugin/tui'
 import { getOwner, onCleanup, runWithOwner } from 'solid-js'
 import { formatReset, quota, type Snapshot } from './quota.js'
 
-const allProviders = ['openai', 'github-copilot', 'anthropic'] as const
-const anthropicEnabled = process.env.OPENCODE_QUOTA_ENABLE_ANTHROPIC === '1'
-// Claude's subscription endpoint is unofficial and disabled by default. Don't
-// even query it or reserve sidebar space for a permanently-disabled card.
-const providers = anthropicEnabled ? allProviders : allProviders.filter((provider) => provider !== 'anthropic')
+const providers = ['openai', 'github-copilot'] as const
 
 function el(tag: string, props: Record<string, unknown> = {}, children: unknown[] = []) {
   const node = createElement(tag)
@@ -83,7 +79,7 @@ const tui: TuiPlugin = async (api) => {
         }
         const refresh = () => {
           for (const provider of providers) {
-            void quota(provider, anthropicEnabled).then((snapshot) => {
+            void quota(provider).then((snapshot) => {
               snapshots.set(provider, snapshot)
               render()
               if (snapshot.status === 'error' && !retryTimer) {
@@ -93,7 +89,7 @@ const tui: TuiPlugin = async (api) => {
                 }, 5000)
               }
             }).catch(() => {
-              snapshots.set(provider, { provider, label: provider === 'github-copilot' ? 'Copilot' : provider === 'anthropic' ? 'Claude' : 'OpenAI', status: 'error', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'quota refresh failed' })
+              snapshots.set(provider, { provider, label: provider === 'github-copilot' ? 'Copilot' : 'OpenAI', status: 'error', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'quota refresh failed' })
               render()
             })
           }

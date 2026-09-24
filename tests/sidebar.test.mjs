@@ -100,7 +100,6 @@ test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', 
     assert.match(frame, /Copilot/)
     assert.match(frame, /77%/)
     assert.doesNotMatch(frame, /Premium/)
-    assert.doesNotMatch(frame, /Claude/)
     assert.doesNotMatch(frame, /OpenAI/)
     completeOpenAI()
     await new Promise(resolve => setTimeout(resolve, 30))
@@ -109,7 +108,6 @@ test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', 
     assert.match(frame, /QUOTA/)
     assert.match(frame, /OpenAI/)
     assert.match(frame, /Copilot/)
-    assert.doesNotMatch(frame, /Claude/)
     assert.match(frame, /80%/)
     assert.doesNotMatch(frame, /Loading quota/)
     refresh()
@@ -118,7 +116,6 @@ test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', 
     frame = screen.captureCharFrame()
     assert.equal(frame.match(/Copilot/g)?.length, 1)
     assert.equal(frame.match(/OpenAI/g)?.length, 1)
-    assert.equal(frame.match(/Claude/g)?.length ?? 0, 0)
     screen.renderer.destroy()
     assert.equal(cleared, true)
     screen = undefined

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-export type Provider = 'openai' | 'github-copilot' | 'anthropic'
+export type Provider = 'openai' | 'github-copilot'
 export type Status = 'ok' | 'unavailable' | 'unsupported' | 'error'
 
 export type QuotaWindow = {
@@ -23,7 +23,6 @@ export type Snapshot = {
 }
 
 type OAuth = { type: 'oauth'; access?: string; expires?: number; accountId?: string }
-type AuthMap = Partial<Record<Provider, OAuth>>
 
 const REQUEST_TIMEOUT_MS = 10_000
 const MAX_RESPONSE_BYTES = 64 * 1024
@@ -31,7 +30,6 @@ const POLL_INTERVAL_MS = 60_000
 const ENDPOINTS: Record<Provider, URL> = {
   openai: new URL('https://chatgpt.com/backend-api/wham/usage'),
   'github-copilot': new URL('https://api.github.com/copilot_internal/user'),
-  anthropic: new URL('https://api.anthropic.com/api/oauth/usage'),
 }
 const OPENAI_RESET_CREDITS_ENDPOINT = new URL('https://chatgpt.com/backend-api/wham/rate-limit-reset-credits')
 
@@ -113,7 +111,6 @@ async function request(provider: Provider, auth: OAuth, endpoint = ENDPOINTS[pro
       headers.Authorization = `Bearer ${auth.access}`
     }
     if (provider === 'openai' && auth.accountId) headers['ChatGPT-Account-Id'] = auth.accountId
-    if (provider === 'anthropic') headers['anthropic-beta'] = 'oauth-2025-04-20'
 
     const response = await fetch(endpoint, { headers, redirect: 'error', signal: controller.signal })
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? 'authentication failed' : `upstream http ${response.status}`)
@@ -178,25 +175,9 @@ function copilot(payload: unknown): QuotaWindow[] {
   return [{ label: 'Premium', remaining, resetAt: date(payload.quota_reset_date) || date(premium.quota_reset_date_utc) }]
 }
 
-function anthropic(payload: unknown): QuotaWindow[] {
-  if (!isRecord(payload)) return []
-  return [
-    ['five_hour', '5h'],
-    ['seven_day', 'Weekly'],
-    ['seven_day_sonnet', 'Sonnet 7d'],
-    ['seven_day_opus', 'Opus 7d'],
-  ].flatMap(([key, label]) => {
-    const window = payload[key]
-    if (!isRecord(window)) return []
-    const used = percentage(window.utilization)
-    return used === undefined ? [] : [{ label, remaining: 100 - used, resetAt: date(window.resets_at) }]
-  })
-}
-
 export function parseQuota(provider: Provider, payload: unknown): QuotaWindow[] {
   if (provider === 'openai') return openai(payload)
-  if (provider === 'github-copilot') return copilot(payload)
-  return anthropic(payload)
+  return copilot(payload)
 }
 
 function noOpenAIQuota(payload: unknown): boolean {
@@ -218,9 +199,8 @@ export function invalidateQuotaCache(): void {
   cache.clear()
 }
 
-export async function quota(provider: Provider, anthropicEnabled: boolean): Promise<Snapshot> {
-  const label = provider === 'github-copilot' ? 'Copilot' : provider === 'anthropic' ? 'Claude' : 'OpenAI'
-  if (provider === 'anthropic' && !anthropicEnabled) return { provider, label, status: 'unsupported', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'disabled: unofficial endpoint' }
+export async function quota(provider: Provider): Promise<Snapshot> {
+  const label = provider === 'github-copilot' ? 'Copilot' : 'OpenAI'
 
   const previous = cache.get(provider)
   if (previous && Date.now() - previous.snapshot.checkedAt < POLL_INTERVAL_MS) return previous.promise || { ...previous.snapshot, freshness: 'cached' }

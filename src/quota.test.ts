@@ -56,14 +56,6 @@ test('normalizes a Copilot premium allowance', () => {
   assert.deepEqual(windows, [{ label: 'Premium', remaining: 73, resetAt: '2026-10-01T00:00:00.000Z' }])
 })
 
-test('normalizes Claude subscription windows', () => {
-  const windows = parseQuota('anthropic', {
-    five_hour: { utilization: 25 },
-    seven_day: { utilization: 55 },
-  })
-  assert.deepEqual(windows.map((window) => [window.label, window.remaining]), [['5h', 75], ['Weekly', 45]])
-})
-
 test('does not invent an OpenAI quota when the provider reports neither windows nor a credit budget', () => {
   assert.deepEqual(parseQuota('openai', { rate_limit: null, additional_rate_limits: null }), [])
   assert.deepEqual(openaiFacts({ rate_limit: null }), [])
@@ -83,7 +75,7 @@ test('labels an interrupted request as retryable', async () => {
   await writeFile(join(directory, 'opencode', 'auth.json'), JSON.stringify({ openai: { type: 'oauth', access: 'test-only', expires: Date.now() + 3600000 } }), { mode: 0o600 })
   globalThis.fetch = async () => { throw new DOMException('The operation was aborted.', 'AbortError') }
   try {
-    const snapshot = await quota('openai', false)
+    const snapshot = await quota('openai')
     assert.equal(snapshot.note, 'request interrupted; retrying')
   } finally {
     globalThis.fetch = originalFetch

@@ -1,6 +1,6 @@
 # OpenCode Quota
 
-A local-first OpenCode quota sidebar for OpenAI, GitHub Copilot, and Claude.
+A local-first OpenCode quota sidebar for OpenAI and GitHub Copilot.
 
 ## Sidebar
 
@@ -35,7 +35,25 @@ the sidebar; the bar and reset time are the only quota UI.
 - Polls each provider at most once per minute and coalesces concurrent requests.
 - Does not refresh or write OAuth credentials. Reauthenticate with OpenCode when a token expires.
 
-OpenAI and Copilot use unofficial subscription endpoints that can change without notice. Claude's subscription endpoint is disabled by default because OpenCode documents policy concerns around Claude Pro/Max integrations, and its card is omitted from the sidebar entirely while disabled. Set `OPENCODE_QUOTA_ENABLE_ANTHROPIC=1` only if you accept that risk.
+OpenAI and Copilot use unofficial subscription endpoints that can change without notice.
+
+## Installation
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-quota@x.y.z"]
+}
+```
+
+Pin an exact version rather than using an unbounded spec. OpenCode installs
+npm plugins automatically via Bun at startup and caches them in
+`~/.cache/opencode/`.
+
+The published package is only `package.json` and `dist/` — no `node_modules`.
+OpenCode embeds `@opentui/*` and `solid-js` in its own binary and provides
+them to plugins, so they are declared as optional peer dependencies rather
+than vendored.
 
 ## Development
 
@@ -56,25 +74,11 @@ first to provision the test runtime.
 ## Releasing
 
 ```sh
-npm run package
+npm version <patch|minor|major>
+npm run build
+npm publish
+git push --follow-tags
 ```
 
-This builds `dist/` and produces `opencode-quota-v<version>.tar.gz` plus a
-`.sha256` digest. Attach both to the GitHub release, then pin the version and
-digest in the chezmoi install script.
-
-## Installation
-
-The chezmoi-managed OpenCode configuration installs a pinned GitHub release to
-`~/.local/share/opencode/plugins/opencode-quota`.
-
-The deployed artifact is only `package.json` and `dist/` — roughly 8 KB with no
-`node_modules`. OpenCode embeds `@opentui/*` and `solid-js` in its own binary
-and provides them to plugins, so they are declared as optional peer
-dependencies rather than vendored. Nothing is compiled or installed on the
-target machine, and no package manager runs at deploy time.
-
-The install script verifies the release archive against a pinned SHA-256 digest
-before extracting, and swaps the directory atomically so a failed download
-cannot leave a partially written plugin in place.
-
+`files` in `package.json` restricts the published tarball to `dist/`,
+`package.json`, `README.md`, and `LICENSE`.

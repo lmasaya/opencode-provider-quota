@@ -11,8 +11,7 @@ var MAX_RESPONSE_BYTES = 64 * 1024;
 var POLL_INTERVAL_MS = 6e4;
 var ENDPOINTS = {
   openai: new URL("https://chatgpt.com/backend-api/wham/usage"),
-  "github-copilot": new URL("https://api.github.com/copilot_internal/user"),
-  anthropic: new URL("https://api.anthropic.com/api/oauth/usage")
+  "github-copilot": new URL("https://api.github.com/copilot_internal/user")
 };
 var OPENAI_RESET_CREDITS_ENDPOINT = new URL("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits");
 var cache = /* @__PURE__ */ new Map();
@@ -79,7 +78,6 @@ async function request(provider, auth, endpoint = ENDPOINTS[provider]) {
       headers.Authorization = `Bearer ${auth.access}`;
     }
     if (provider === "openai" && auth.accountId) headers["ChatGPT-Account-Id"] = auth.accountId;
-    if (provider === "anthropic") headers["anthropic-beta"] = "oauth-2025-04-20";
     const response = await fetch(endpoint, { headers, redirect: "error", signal: controller.signal });
     if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "authentication failed" : `upstream http ${response.status}`);
     return await json(response);
@@ -135,24 +133,9 @@ function copilot(payload) {
   if (remaining === void 0) return [];
   return [{ label: "Premium", remaining, resetAt: date(payload.quota_reset_date) || date(premium.quota_reset_date_utc) }];
 }
-function anthropic(payload) {
-  if (!isRecord(payload)) return [];
-  return [
-    ["five_hour", "5h"],
-    ["seven_day", "Weekly"],
-    ["seven_day_sonnet", "Sonnet 7d"],
-    ["seven_day_opus", "Opus 7d"]
-  ].flatMap(([key, label]) => {
-    const window = payload[key];
-    if (!isRecord(window)) return [];
-    const used = percentage(window.utilization);
-    return used === void 0 ? [] : [{ label, remaining: 100 - used, resetAt: date(window.resets_at) }];
-  });
-}
 function parseQuota(provider, payload) {
   if (provider === "openai") return openai(payload);
-  if (provider === "github-copilot") return copilot(payload);
-  return anthropic(payload);
+  return copilot(payload);
 }
 function noOpenAIQuota(payload) {
   return isRecord(payload) && payload.rate_limit === null && payload.additional_rate_limits === null;
@@ -168,9 +151,8 @@ function errorNote(error) {
 function invalidateQuotaCache() {
   cache.clear();
 }
-async function quota(provider, anthropicEnabled2) {
-  const label = provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI";
-  if (provider === "anthropic" && !anthropicEnabled2) return { provider, label, status: "unsupported", freshness: "live", checkedAt: Date.now(), windows: [], note: "disabled: unofficial endpoint" };
+async function quota(provider) {
+  const label = provider === "github-copilot" ? "Copilot" : "OpenAI";
   const previous = cache.get(provider);
   if (previous && Date.now() - previous.snapshot.checkedAt < POLL_INTERVAL_MS) return previous.promise || { ...previous.snapshot, freshness: "cached" };
   if (previous?.promise) return previous.promise;
@@ -212,9 +194,7 @@ function formatReset(resetAt) {
 }
 
 // src/tui.ts
-var allProviders = ["openai", "github-copilot", "anthropic"];
-var anthropicEnabled = process.env.OPENCODE_QUOTA_ENABLE_ANTHROPIC === "1";
-var providers = anthropicEnabled ? allProviders : allProviders.filter((provider) => provider !== "anthropic");
+var providers = ["openai", "github-copilot"];
 function el(tag, props = {}, children = []) {
   const node = createElement(tag);
   for (const [key, value] of Object.entries(props)) setProp(node, key, value);
@@ -280,7 +260,7 @@ var tui = async (api) => {
         };
         const refresh = () => {
           for (const provider of providers) {
-            void quota(provider, anthropicEnabled).then((snapshot) => {
+            void quota(provider).then((snapshot) => {
               snapshots.set(provider, snapshot);
               render();
               if (snapshot.status === "error" && !retryTimer) {
@@ -290,7 +270,7 @@ var tui = async (api) => {
                 }, 5e3);
               }
             }).catch(() => {
-              snapshots.set(provider, { provider, label: provider === "github-copilot" ? "Copilot" : provider === "anthropic" ? "Claude" : "OpenAI", status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: "quota refresh failed" });
+              snapshots.set(provider, { provider, label: provider === "github-copilot" ? "Copilot" : "OpenAI", status: "error", freshness: "live", checkedAt: Date.now(), windows: [], note: "quota refresh failed" });
               render();
             });
           }

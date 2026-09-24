@@ -4,7 +4,7 @@ Report vulnerabilities privately to the repository owner. Do not include credent
 
 Security invariants:
 
-- Only `chatgpt.com`, `api.github.com`, and `api.anthropic.com` are valid quota hosts.
+- Only `chatgpt.com` and `api.github.com` are valid quota hosts.
 - Provider endpoints are constants, never configuration.
 - Redirects are rejected.
 - OAuth tokens are read in memory and never logged, persisted, or refreshed by this plugin.
