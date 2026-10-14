@@ -1,80 +1,64 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { testRender } from '@opentui/solid'
-import plugin, { invalidateQuotaCache } from '../dist/tui.js'
+import plugin from '../dist/tui.js'
 
-test('built sidebar renders a business-plan credit budget for OpenAI', async () => {
-  invalidateQuotaCache()
-  const directory = await mkdtemp(join(tmpdir(), 'quota-ui-business-'))
-  const originalDataHome = process.env.XDG_DATA_HOME
-  const originalFetch = globalThis.fetch
-  process.env.XDG_DATA_HOME = directory
-  await mkdir(join(directory, 'opencode'))
-  await writeFile(join(directory, 'opencode', 'auth.json'), JSON.stringify({
-    openai: { type: 'oauth', access: 'test-only', expires: Date.now() + 3600000 },
-  }), { mode: 0o600 })
-  globalThis.fetch = async url => {
-    assert.equal(String(url), 'https://chatgpt.com/backend-api/wham/usage')
-    return Response.json({
-      plan_type: 'business',
-      rate_limit: null,
-      additional_rate_limits: null,
-      spend_control: {
-        individual_limit: { unit: 'credit', limit: '7500', remaining: '5390.29', used_percent: 28, remaining_percent: 72, reset_at: 1790812800 },
+const theme = { text: { base: '#ffffff', muted: '#888888' } }
+
+const snapshot = (provider, label, windows, extra = {}) => ({
+  provider,
+  label,
+  status: 'ok',
+  freshness: 'live',
+  checkedAt: Date.now(),
+  windows,
+  ...extra,
+})
+
+async function mount(snapshots) {
+  let claim
+  const calls = { count: 0 }
+  const cleanup = await plugin.setup({
+    theme,
+    client: {
+      rpc(definition) {
+        assert.equal(definition.id, 'lmasaya.opencode-provider-quota')
+        return { snapshots: async () => { calls.count += 1; return { snapshots: await snapshots() } } }
       },
-    })
-  }
-  let slot
-  let screen
+    },
+    ui: { slot(value) { claim = value; return () => {} } },
+  })
+  assert.equal(claim.append, 'sidebar.content')
+  return { claim, calls, cleanup }
+}
+
+test('plugin definition has a stable TUI id and registers one sidebar slot', async () => {
+  assert.equal(plugin.id, 'lmasaya.opencode-provider-quota.tui')
+  const { claim } = await mount(async () => [])
+  assert.equal(typeof claim.render, 'function')
+})
+
+test('built sidebar renders a single-window credit budget bar', async () => {
+  const { claim } = await mount(async () => [
+    snapshot('openai', 'OpenAI', [{ label: 'Credits', remaining: 72, resetAt: new Date(Date.now() + 3 * 3600_000).toISOString() }]),
+  ])
+  const screen = await testRender(() => claim.render({ sessionID: 's1' }), { width: 60, height: 30 })
   try {
-    await plugin.tui({
-      theme: { current: { text: '#ffffff', textMuted: '#888888', success: '#00ff00', warning: '#ffaa00', error: '#ff0000', info: '#0088ff' } },
-      slots: { register(value) { slot = value.slots.sidebar_content } },
-    })
-    screen = await testRender(() => slot(), { width: 60, height: 30 })
     await new Promise(resolve => setTimeout(resolve, 100))
     await screen.renderOnce()
     const frame = screen.captureCharFrame()
+    assert.match(frame, /QUOTA/)
     assert.match(frame, /OpenAI/)
     assert.match(frame, /72%/)
-    assert.doesNotMatch(frame, /credits left/)
-    assert.doesNotMatch(frame, /no active metered quota/)
-    assert.doesNotMatch(frame, /quota response changed/)
+    assert.doesNotMatch(frame, /Loading quota/)
   } finally {
-    screen?.renderer.destroy()
-    globalThis.fetch = originalFetch
-    if (originalDataHome === undefined) delete process.env.XDG_DATA_HOME
-    else process.env.XDG_DATA_HOME = originalDataHome
-    await rm(directory, { recursive: true, force: true })
+    screen.renderer.destroy()
   }
 })
 
-test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', async () => {
-  invalidateQuotaCache()
-  const directory = await mkdtemp(join(tmpdir(), 'quota-ui-test-'))
-  const originalDataHome = process.env.XDG_DATA_HOME
-  const originalFetch = globalThis.fetch
+test('built sidebar renders both providers, refreshes without duplicating cards, and cleans up', async () => {
   const originalInterval = globalThis.setInterval
   const originalClearInterval = globalThis.clearInterval
-  process.env.XDG_DATA_HOME = directory
-  await mkdir(join(directory, 'opencode'))
-  await writeFile(join(directory, 'opencode', 'auth.json'), JSON.stringify({
-    openai: { type: 'oauth', access: 'test-only', expires: Date.now() + 3600000 },
-    'github-copilot': { type: 'oauth', access: 'test-only' },
-  }), { mode: 0o600 })
-  let completeOpenAI
-  globalThis.fetch = async url => {
-    if (String(url) === 'https://chatgpt.com/backend-api/wham/usage') {
-      return new Promise(resolve => { completeOpenAI = () => resolve(Response.json({
-        rate_limit: { primary_window: { used_percent: 20, reset_after_seconds: 600 } },
-      })) })
-    }
-    assert.equal(String(url), 'https://api.github.com/copilot_internal/user')
-    return Response.json({ quota_snapshots: { premium_interactions: { percent_remaining: 77 } } })
-  }
   let refresh
   let cleared = false
   globalThis.setInterval = (callback, ms, ...args) => {
@@ -86,34 +70,34 @@ test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', 
     if (timer === 'quota-test-timer') cleared = true
     else originalClearInterval(timer)
   }
-  let slot
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  let first = true
+  const { claim, calls } = await mount(async () => {
+    if (first) { first = false; await gate }
+    return [
+      snapshot('openai', 'OpenAI', [{ label: '5h', remaining: 80 }]),
+      snapshot('github-copilot', 'Copilot', [{ label: 'Premium', remaining: 77 }]),
+    ]
+  })
   let screen
   try {
-    await plugin.tui({
-      theme: { current: { textMuted: '#888888', success: '#00ff00', warning: '#ffaa00', error: '#ff0000', info: '#0088ff' } },
-      slots: { register(value) { slot = value.slots.sidebar_content } },
-    })
-    screen = await testRender(() => slot(), { width: 60, height: 30 })
-    await new Promise(resolve => setTimeout(resolve, 100))
+    screen = await testRender(() => claim.render({ sessionID: 's1' }), { width: 60, height: 30 })
+    await screen.renderOnce()
+    assert.match(screen.captureCharFrame(), /Loading quota/)
+    release()
+    await new Promise(resolve => setTimeout(resolve, 50))
     await screen.renderOnce()
     let frame = screen.captureCharFrame()
+    assert.match(frame, /OpenAI/)
+    assert.match(frame, /80%/)
     assert.match(frame, /Copilot/)
     assert.match(frame, /77%/)
-    assert.doesNotMatch(frame, /Premium/)
-    assert.doesNotMatch(frame, /OpenAI/)
-    completeOpenAI()
-    await new Promise(resolve => setTimeout(resolve, 30))
-    await screen.renderOnce()
-    frame = screen.captureCharFrame()
-    assert.match(frame, /QUOTA/)
-    assert.match(frame, /OpenAI/)
-    assert.match(frame, /Copilot/)
-    assert.match(frame, /80%/)
-    assert.doesNotMatch(frame, /Loading quota/)
     refresh()
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await new Promise(resolve => setTimeout(resolve, 50))
     await screen.renderOnce()
     frame = screen.captureCharFrame()
+    assert.equal(calls.count, 2)
     assert.equal(frame.match(/Copilot/g)?.length, 1)
     assert.equal(frame.match(/OpenAI/g)?.length, 1)
     screen.renderer.destroy()
@@ -121,11 +105,21 @@ test('built sidebar renders asynchronous quota bars, refreshes, and cleans up', 
     screen = undefined
   } finally {
     screen?.renderer.destroy()
-    globalThis.fetch = originalFetch
     globalThis.setInterval = originalInterval
     globalThis.clearInterval = originalClearInterval
-    if (originalDataHome === undefined) delete process.env.XDG_DATA_HOME
-    else process.env.XDG_DATA_HOME = originalDataHome
-    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('built sidebar shows a safe error state when the quota RPC fails', async () => {
+  const { claim } = await mount(async () => { throw new Error('server unavailable') })
+  const screen = await testRender(() => claim.render({ sessionID: 's1' }), { width: 60, height: 30 })
+  try {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await screen.renderOnce()
+    const frame = screen.captureCharFrame()
+    assert.match(frame, /quota refresh failed/)
+    assert.doesNotMatch(frame, /server unavailable/)
+  } finally {
+    screen.renderer.destroy()
   }
 })

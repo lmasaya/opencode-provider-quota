@@ -1,8 +1,5 @@
-import { readFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
-
-export type Provider = 'openai' | 'github-copilot'
+export const providers = ['openai', 'github-copilot'] as const
+export type Provider = (typeof providers)[number]
 export type Status = 'ok' | 'unavailable' | 'unsupported' | 'error'
 
 export type QuotaWindow = {
@@ -22,7 +19,8 @@ export type Snapshot = {
   note?: string
 }
 
-type OAuth = { type: 'oauth'; access?: string; expires?: number; accountId?: string }
+export type Auth = { access?: string; expires?: number; accountId?: string }
+export type AuthLoader = (provider: Provider) => Promise<Auth | undefined>
 
 const REQUEST_TIMEOUT_MS = 10_000
 const MAX_RESPONSE_BYTES = 64 * 1024
@@ -73,21 +71,6 @@ function relativeReset(seconds: unknown): string | undefined {
   return value === undefined || value < 0 ? undefined : new Date(Date.now() + value * 1000).toISOString()
 }
 
-function authPath() {
-  return join(process.env.XDG_DATA_HOME || join(homedir(), '.local', 'share'), 'opencode', 'auth.json')
-}
-
-async function loadAuth(provider: Provider): Promise<OAuth | undefined> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(authPath(), 'utf8'))
-    if (!isRecord(parsed) || !isRecord(parsed[provider])) return undefined
-    const auth = parsed[provider]
-    return auth.type === 'oauth' ? auth as OAuth : undefined
-  } catch {
-    return undefined
-  }
-}
-
 async function json(response: Response): Promise<unknown> {
   const length = Number(response.headers.get('content-length'))
   if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) throw new Error('response too large')
@@ -96,7 +79,7 @@ async function json(response: Response): Promise<unknown> {
   return JSON.parse(text) as unknown
 }
 
-async function request(provider: Provider, auth: OAuth, endpoint = ENDPOINTS[provider]): Promise<unknown> {
+async function request(provider: Provider, auth: Auth, endpoint = ENDPOINTS[provider]): Promise<unknown> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -199,7 +182,7 @@ export function invalidateQuotaCache(): void {
   cache.clear()
 }
 
-export async function quota(provider: Provider): Promise<Snapshot> {
+export async function quota(provider: Provider, loadAuth: AuthLoader): Promise<Snapshot> {
   const label = provider === 'github-copilot' ? 'Copilot' : 'OpenAI'
 
   const previous = cache.get(provider)
@@ -207,7 +190,7 @@ export async function quota(provider: Provider): Promise<Snapshot> {
   if (previous?.promise) return previous.promise
 
   const promise = (async (): Promise<Snapshot> => {
-    const auth = await loadAuth(provider)
+    const auth = await loadAuth(provider).catch(() => undefined)
     if (!auth?.access) return { provider, label, status: 'unavailable', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'OAuth authentication unavailable' }
     if (auth.expires && auth.expires <= Date.now()) return { provider, label, status: 'unavailable', freshness: 'live', checkedAt: Date.now(), windows: [], note: 'OAuth authentication expired' }
     try {
