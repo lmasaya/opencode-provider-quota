@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { formatReset, openaiFacts, parseQuota, quota, resetCreditFact } from './quota.js'
+import { formatReset, invalidateQuotaCache, openaiFacts, parseQuota, quota, resetCreditFact } from './quota.js'
 
 test('formats a future reset without exposing an absolute timestamp for nearby resets', () => {
   const reset = new Date(Date.now() + 30 * 60_000).toISOString()
@@ -68,19 +65,46 @@ test('renders an actionable OpenAI reset-credit count without treating it as a p
 
 test('labels an interrupted request as retryable', async () => {
   const originalFetch = globalThis.fetch
-  const originalDataHome = process.env.XDG_DATA_HOME
-  const directory = await mkdtemp(join(tmpdir(), 'opencode-quota-test-'))
-  process.env.XDG_DATA_HOME = directory
-  await mkdir(join(directory, 'opencode'))
-  await writeFile(join(directory, 'opencode', 'auth.json'), JSON.stringify({ openai: { type: 'oauth', access: 'test-only', expires: Date.now() + 3600000 } }), { mode: 0o600 })
   globalThis.fetch = async () => { throw new DOMException('The operation was aborted.', 'AbortError') }
   try {
-    const snapshot = await quota('openai')
+    const snapshot = await quota('openai', async () => ({ access: 'test-only', expires: Date.now() + 3600000 }))
     assert.equal(snapshot.note, 'request interrupted; retrying')
   } finally {
     globalThis.fetch = originalFetch
-    if (originalDataHome === undefined) delete process.env.XDG_DATA_HOME
-    else process.env.XDG_DATA_HOME = originalDataHome
-    await rm(directory, { recursive: true, force: true })
+    invalidateQuotaCache()
+  }
+})
+
+test('reports unavailable authentication without calling the provider', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => { throw new Error('must not fetch') }
+  try {
+    invalidateQuotaCache()
+    assert.equal((await quota('openai', async () => undefined)).status, 'unavailable')
+    assert.equal((await quota('openai', async () => { throw new Error('boom') })).status, 'unavailable')
+    assert.equal((await quota('openai', async () => ({ access: 'test-only', expires: Date.now() - 1 }))).note, 'OAuth authentication expired')
+  } finally {
+    globalThis.fetch = originalFetch
+    invalidateQuotaCache()
+  }
+})
+
+test('sends the OpenAI account header only when an account is known', async () => {
+  const originalFetch = globalThis.fetch
+  const seen: Array<Record<string, string>> = []
+  globalThis.fetch = async (_url, init) => {
+    seen.push(init?.headers as Record<string, string>)
+    return Response.json({ rate_limit: { primary_window: { used_percent: 10 } } })
+  }
+  try {
+    invalidateQuotaCache()
+    await quota('openai', async () => ({ access: 'test-only', accountId: 'acct-1' }))
+    invalidateQuotaCache()
+    await quota('openai', async () => ({ access: 'test-only' }))
+    assert.equal(seen[0]['ChatGPT-Account-Id'], 'acct-1')
+    assert.equal(seen[1]['ChatGPT-Account-Id'], undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+    invalidateQuotaCache()
   }
 })

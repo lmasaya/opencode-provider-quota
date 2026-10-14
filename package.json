@@ -1,22 +1,19 @@
 {
   "name": "opencode-provider-quota",
-  "version": "1.0.0",
-  "description": "Security-conscious OpenCode quota sidebar for OpenAI and GitHub Copilot.",
+  "version": "2.0.0",
+  "description": "Security-conscious OpenCode v2 quota sidebar for OpenAI and GitHub Copilot.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./tui": "./dist/tui.js"
+    "./tui": "./dist/tui.js",
+    "./rpc": "./dist/rpc.js"
   },
-  "oc-plugin": [
-    "server",
-    "tui"
-  ],
   "files": [
     "dist"
   ],
   "engines": {
-    "opencode": ">=1.18.25 <2"
+    "opencode": ">=2.0.28 <3"
   },
   "repository": {
     "type": "git",
@@ -40,19 +37,19 @@
     "access": "public"
   },
   "scripts": {
-    "build": "esbuild src/index.ts src/tui.ts --bundle --format=esm --platform=node --packages=external --outdir=dist",
+    "build": "esbuild src/index.ts src/tui.ts src/rpc.ts --bundle --format=esm --platform=node --packages=external --outdir=dist",
     "check": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
     "test:ui": "bun test --conditions=browser tests/sidebar.test.mjs"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.18.25",
-    "@opentui/core": ">=0.4.5",
-    "@opentui/solid": ">=0.4.5",
-    "solid-js": ">=1.9.12"
+    "@opencode/plugin": ">=2.0.28",
+    "@opentui/core": ">=0.5.17",
+    "@opentui/solid": ">=0.5.17",
+    "solid-js": ">=1.9.0"
   },
   "peerDependenciesMeta": {
-    "@opencode-ai/plugin": {
+    "@opencode/plugin": {
       "optional": true
     },
     "@opentui/core": {
@@ -66,12 +63,14 @@
     }
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "1.18.31",
-    "@opentui/core": "0.4.5",
-    "@opentui/solid": "0.4.5",
+    "@opencode/client": "2.0.29",
+    "@opencode/plugin": "2.0.29",
+    "@opencode/theme": "2.0.29",
+    "@opentui/core": "0.5.17",
+    "@opentui/solid": "0.5.17",
     "@types/node": "22.13.10",
     "esbuild": "0.28.2",
-    "solid-js": "1.9.12",
+    "solid-js": "1.9.17",
     "tsx": "4.20.6",
     "typescript": "5.8.3"
   }

@@ -7,9 +7,10 @@ Security invariants:
 - Only `chatgpt.com` and `api.github.com` are valid quota hosts.
 - Provider endpoints are constants, never configuration.
 - Redirects are rejected.
-- OAuth tokens are read in memory and never logged, persisted, or refreshed by this plugin.
+- OAuth tokens are obtained through OpenCode's integration API, stay in the server process, and are never logged, persisted, sent to the TUI, or refreshed by this plugin.
+- The plugin does not read `auth.json` or the OpenCode database.
 - The plugin must not load configuration from a worktree or `.opencode` directory.
 
 ## Dependency Note
 
-OpenCode currently requires `@opentui/solid >=0.4.5`. The compatible TUI chain has a low-severity `@babel/core` source-map advisory. The available npm audit fix downgrades OpenTUI below OpenCode's required version, so it must not be forced. Reassess this when OpenCode updates its TUI peer dependency.
+Development dependencies include OpenTUI (`@opentui/*`), which OpenCode provides to plugins at runtime. Run `npm audit` before each release; it was clean at 2.0.0. Do not force fixes that downgrade OpenTUI below OpenCode's required version.
