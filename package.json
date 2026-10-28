@@ -73,5 +73,10 @@
     "solid-js": "1.9.17",
     "tsx": "4.20.6",
     "typescript": "5.8.3"
+  },
+  "overrides": {
+    "@opentui/solid": {
+      "solid-js": "$solid-js"
+    }
   }
 }
