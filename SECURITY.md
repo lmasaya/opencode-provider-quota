@@ -13,4 +13,4 @@ Security invariants:
 
 ## Dependency Note
 
-Development dependencies include OpenTUI (`@opentui/*`), which OpenCode provides to plugins at runtime. Run `npm audit` before each release; it was clean at 2.0.0. Do not force fixes that downgrade OpenTUI below OpenCode's required version.
+Development dependencies include OpenTUI (`@opentui/*`), which OpenCode provides to plugins at runtime. CI runs `npm audit` and `npm audit signatures` on every change, and the release workflow repeats them before publishing; the audit was clean at 2.0.1. Do not force fixes that downgrade OpenTUI below OpenCode's required version.
