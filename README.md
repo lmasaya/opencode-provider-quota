@@ -71,7 +71,7 @@ Add the package to `plugins` in your global `~/.config/opencode/opencode.jsonc`
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["opencode-provider-quota@2.0.0"]
+  "plugins": ["opencode-provider-quota@2.0.1"]
 }
 ```
 
@@ -83,7 +83,7 @@ exact versions afterwards.
 Alternatively, install it from the CLI:
 
 ```sh
-opencode plugin add opencode-provider-quota@2.0.0
+opencode plugin add opencode-provider-quota@2.0.1
 ```
 
 The CLI part loads automatically from the same entry; you do not need to add
