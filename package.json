@@ -1,6 +1,6 @@
 {
   "name": "opencode-provider-quota",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Security-conscious OpenCode v2 quota sidebar for OpenAI and GitHub Copilot.",
   "type": "module",
   "main": "./dist/index.js",
